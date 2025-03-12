@@ -49,9 +49,9 @@ play_morse() {
     for ((i=0; i<${#code}; i++)); do
         char=${code:$i:1}
         if [[ "$char" == "." ]]; then
-            beep -f 800 -l 100  # Точка
+            beep -f 800 -l 50  # Точка
         else
-            beep -f 800 -l 300  # Тире
+            beep -f 800 -l 150  # Тире
         fi
         sleep 0.05
     done
@@ -76,7 +76,7 @@ while true; do
 
     # Воспроизведение сигнала в морзе
     play_morse "$letter"
-    sleep 0.5
+    #sleep 0.5
 
     # Засекаем время ожидания ввода
     start_time=$(date +%s%3N)
@@ -87,7 +87,7 @@ while true; do
     if [[ "$input" != "$letter" ]]; then
         echo "Ошибка! Нужно было: $letter"
         ((letters[$letter] += 1000))
-        sleep 2
+        sleep 1
     else
         if ((press_time > duration)); then
             letters[$letter]=$press_time
