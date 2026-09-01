@@ -1,5 +1,7 @@
 #!/bin/bash
 
+DATA_FILE="letters.txt"
+
 # Проверка наличия аудио-бенчмарка
 if ! command -v play &>/dev/null; then
     echo "Ошибка: команда 'play' не найдена." >&2
@@ -20,11 +22,17 @@ fi
 # n 2000
 # u 1500
 
-# Читаем файл и загружаем буквы и их длительности в массивы
+# 2. Загрузка данных
 declare -A letters
-while read -r letter time; do
-    letters[$letter]=$time
-done < letters.txt
+while read -r letter time || [[ -n "$letter" ]]; do
+    [[ -z "$letter" || "$letter" =~ ^# ]] && continue
+    letters["$letter"]="${time:-1000}"
+done < "$DATA_FILE"
+
+if (( ${#letters[@]} == 0 )); then
+    echo "Ошибка: файл $DATA_FILE пуст или некорректен." >&2
+    exit 1
+fi
 
 # Определение кода Морзе
 declare -A morse_code
@@ -108,10 +116,14 @@ while true; do
     #sleep 0.5
 
     # Засекаем время ожидания ввода
-    start_time=$(date +%s%3N)
-    read -n 1 input
-    end_time=$(date +%s%3N)
-    press_time=$((end_time - start_time))
+    start_raw="${EPOCHREALTIME//[!0-9]/}"
+    read -n 1 -r input || true
+    end_raw="${EPOCHREALTIME//[!0-9]/}"
+    echo ""
+
+    # Вычисление реакции (перевод мкс в мс + защита от монотонного сдвига)
+    press_time=$(( (end_raw - start_raw) / 1000 ))
+    (( press_time < 0 )) && press_time=10
 
     if [[ "$input" != "$letter" ]]; then
         echo "Ошибка! Нужно было: $letter"
