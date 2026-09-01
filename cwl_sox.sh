@@ -42,18 +42,33 @@ morse_code=(
 # Функция для выбора буквы с учётом её вероятности
 choose_letter() {
     local total_weight=0
-    for time in "${letters[@]}"; do
-        ((total_weight += time))
-    done
-    local rand=$((RANDOM % total_weight))
-    local cumulative=0
+    local -a keys=()
+    local key
+
+    # Собираем ключи и считаем сумму весов
     for key in "${!letters[@]}"; do
+        keys+=("$key")
+        ((total_weight += letters[$key]))
+    done
+
+    # Защита от нулевого веса
+    ((total_weight == 0)) && { echo "${keys[0]}"; return; }
+
+    # Генерируем достаточно большое случайное число
+    # (используем несколько вызовов RANDOM)
+    local rand=$(( (RANDOM << 15 | RANDOM) % total_weight ))
+
+    local cumulative=0
+    for key in "${keys[@]}"; do
         ((cumulative += letters[$key]))
         if ((rand < cumulative)); then
             echo "$key"
             return
         fi
     done
+
+    # На всякий случай (из-за округления)
+    echo "${keys[-1]}"
 }
 
 # Требуется пакет: sox (и при необходимости libsox-fmt-pulse / libsox-fmt-alsa)
@@ -63,9 +78,9 @@ play_morse() {
     for ((i=0; i<${#code}; i++)); do
         char=${code:$i:1}
         if [[ "$char" == "." ]]; then
-            play -q -n synth 0.05 sine 800
+            play -q -n synth 0.05 sine 900
         else
-            play -q -n synth 0.15 sine 800
+            play -q -n synth 0.150 sine 900
         fi
         sleep 0.05
     done
