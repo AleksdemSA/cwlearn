@@ -175,7 +175,8 @@ while true; do
     letter=$(choose_letter)
     duration=${letters[$letter]}
 
-    echo -n "Символ: $letter (вес: ${duration} мс) -> "
+    #echo -n "Символ: $letter (вес: ${duration} мс) -> "
+    echo -n "Символ? "
 
     # Сброс буфера stdin перед воспроизведением и замером
     read -t 0.001 -n 10000 _ || true
