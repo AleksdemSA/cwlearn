@@ -1,26 +1,24 @@
 #!/bin/bash
+# ==============================================================================
+# Morse Code Trainer (Hardened & Optimized)
+# ==============================================================================
+
+set -euo pipefail
 
 DATA_FILE="letters.txt"
+MAX_WEIGHT=15000  # Верхний отсекатель веса (мс) во избежание монополизации
 
-# Проверка наличия аудио-бенчмарка
+# 1. Проверка окружения
 if ! command -v play &>/dev/null; then
-    echo "Ошибка: команда 'play' не найдена." >&2
-    echo "Для работы скрипта установите пакет sox (например: sudo pacman -S sox или sudo apt install sox)." >&2
+    echo "Ошибка: утилита 'play' (sox) не найдена." >&2
+    echo "Установите sox (pacman -S sox / apt install sox)." >&2
     exit 1
 fi
 
-# Проверка входного файла данных
-if [[ ! -f "letters.txt" ]]; then
-    echo "Ошибка: файл letters.txt не найден в текущей директории." >&2
+if [[ ! -f "$DATA_FILE" ]]; then
+    echo "Ошибка: файл $DATA_FILE не найден." >&2
     exit 1
 fi
-
-# Обязательно нужен файл letters.txt с изучаемыми буквами. Формат буква вмермя в миллисекундах
-# например
-# m 1000
-# k 1000
-# n 2000
-# u 1500
 
 # 2. Загрузка данных
 declare -A letters
@@ -34,57 +32,62 @@ if (( ${#letters[@]} == 0 )); then
     exit 1
 fi
 
-# Определение кода Морзе
-declare -A morse_code
-morse_code=(
-    [a]='.-' [b]='-...' [c]='-.-.' [d]='-..' [e]='.'
-    [f]='..-.' [g]='--.' [h]='....' [i]='..' [j]='.---'
-    [k]='-.-' [l]='.-..' [m]='--' [n]='-.' [o]='---'
-    [p]='.--.' [q]='--.-' [r]='.-.' [s]='...' [t]='-'
-    [u]='..-' [v]='...-' [w]='.--' [x]='-..-' [y]='-.--'
-    [z]='--..' [0]='-----' [1]='.----' [2]='..---' 
+# 3. Алфавит Морзе
+declare -A morse_code=(
+    [a]='.-'   [b]='-...' [c]='-.-.' [d]='-..'  [e]='.'
+    [f]='..-.' [g]='--.'  [h]='....' [i]='..'   [j]='.---'
+    [k]='-.-'  [l]='.-..' [m]='--'   [n]='-.'   [o]='---'
+    [p]='.--.' [q]='--.-' [r]='.-.'  [s]='...'  [t]='-'
+    [u]='..-'  [v]='...-' [w]='.--'  [x]='-..-' [y]='-.--'
+    [z]='--..' [0]='-----' [1]='.----' [2]='..---'
     [3]='...--' [4]='....-' [5]='.....' [6]='-....'
     [7]='--...' [8]='---..' [9]='----.'
 )
 
-# Функция для выбора буквы с учётом её вероятности
+# 4. Взвешенный выбор с устранением 15-битного лимита $RANDOM и Modulo Bias
 choose_letter() {
     local total_weight=0
-    local -a keys=()
+    local keys=()
     local key
 
-    # Собираем ключи и считаем сумму весов
     for key in "${!letters[@]}"; do
         keys+=("$key")
-        ((total_weight += letters[$key]))
+        (( total_weight += letters[$key] ))
     done
 
-    # Защита от нулевого веса
-    ((total_weight == 0)) && { echo "${keys[0]}"; return; }
+    if (( total_weight <= 0 )); then
+        echo "${keys[0]}"
+        return
+    fi
 
-    # Генерируем достаточно большое случайное число
-    # (используем несколько вызовов RANDOM)
-    local rand=$(( (RANDOM << 15 | RANDOM) % total_weight ))
+    local rand
+    if [[ -r /dev/urandom ]]; then
+        local raw
+        raw=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
+        rand=$(( raw % total_weight ))
+    else
+        rand=$(( ((RANDOM << 15) | RANDOM) % total_weight ))
+    fi
 
     local cumulative=0
     for key in "${keys[@]}"; do
-        ((cumulative += letters[$key]))
-        if ((rand < cumulative)); then
+        (( cumulative += letters[$key] ))
+        if (( rand < cumulative )); then
             echo "$key"
             return
         fi
     done
-
-    # На всякий случай (из-за округления)
     echo "${keys[-1]}"
 }
 
-# Требуется пакет: sox (и при необходимости libsox-fmt-pulse / libsox-fmt-alsa)
+# 5. Синтез звука
 play_morse() {
     local letter=$1
-    local code=${morse_code[$letter]}
+    local code=${morse_code[$letter]:-}
+    [[ -z "$code" ]] && return
+
     for ((i=0; i<${#code}; i++)); do
-        char=${code:$i:1}
+        local char=${code:$i:1}
         if [[ "$char" == "." ]]; then
             play -q -n synth 0.05 sine 900
         else
@@ -94,28 +97,34 @@ play_morse() {
     done
 }
 
-# Функция для вывода таблицы перед выходом
-print_results() {
-    echo 'Результаты:'
-    for key in "${!letters[@]}"; do
-        echo "$key ${letters[$key]}"
-    done
+# 6. Атомарное сохранение состояния
+save_results() {
+    echo -e "\n\n[+] Сохранение результатов в $DATA_FILE..."
+    local tmp_file="${DATA_FILE}.tmp"
+    {
+        for key in "${!letters[@]}"; do
+            echo "$key ${letters[$key]}"
+        done
+    } > "$tmp_file" && mv "$tmp_file" "$DATA_FILE"
+    echo "[+] Успешно сохранено."
 }
 
-# Установка обработчика SIGINT
-trap "print_results; exit" SIGINT
+trap "save_results; exit 0" SIGINT SIGTERM
 
-# Основной цикл
+# 7. Основной цикл
+echo "Тренажер Морзе запущен (KISS architecture)."
+echo "Нажмите Ctrl+C для безопасного завершения с сохранением весов."
+echo "--------------------------------------------------------"
+
 while true; do
     letter=$(choose_letter)
     duration=${letters[$letter]}
-    echo "Введите: $letter (время: ${duration} мс)"
 
-    # Воспроизведение сигнала в морзе
+    echo -n "Буква: $letter (вес: ${duration} мс) -> "
+
     play_morse "$letter"
-    #sleep 0.5
 
-    # Засекаем время ожидания ввода
+    # Замер времени через EPOCHREALTIME без порождения subshell процессов
     start_raw="${EPOCHREALTIME//[!0-9]/}"
     read -n 1 -r input || true
     end_raw="${EPOCHREALTIME//[!0-9]/}"
@@ -126,15 +135,17 @@ while true; do
     (( press_time < 0 )) && press_time=10
 
     if [[ "$input" != "$letter" ]]; then
-        echo "Ошибка! Нужно было: $letter"
-        ((letters[$letter] += 1000))
+        echo "   [!] Ошибка! Нажато '$input', ожидалось '$letter'."
+        new_weight=$(( letters[$letter] + 1000 ))
         sleep 1
     else
-        if ((press_time > duration)); then
-            letters[$letter]=$press_time
-        elif ((press_time < duration)); then
-            letters[$letter]=$press_time
-        fi
+        echo "   [+] Верно! Реакция: ${press_time} мс."
+        # Экспоненциальное сглаживание EMA (70% старого веса + 30% нового замера)
+        new_weight=$(( (letters[$letter] * 7 + press_time * 3) / 10 ))
     fi
 
+    # Клиппинг веса в рамках допустимого диапазона [50, MAX_WEIGHT]
+    (( new_weight > MAX_WEIGHT )) && new_weight=$MAX_WEIGHT
+    (( new_weight < 50 )) && new_weight=50
+    letters[$letter]=$new_weight
 done
